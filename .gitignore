@@ -1,0 +1,19 @@
+# Gradle build output
+build/
+.gradle/
+
+# Compiled class files
+**/*.class
+
+# IntelliJ IDEA — proje ayarları (isteğe bağlı, takım çalışmasında açık bırakılabilir)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
