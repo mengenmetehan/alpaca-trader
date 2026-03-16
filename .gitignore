@@ -5,11 +5,18 @@ build/
 # Compiled class files
 **/*.class
 
-# IntelliJ IDEA — proje ayarları (isteğe bağlı, takım çalışmasında açık bırakılabilir)
-.idea/
+# IntelliJ IDEA
+.idea/misc.xml
+.idea/gradle.xml
+.idea/compiler.xml
+.idea/kotlinc.xml
 *.iml
 *.iws
 *.ipr
+
+# API Keys
+.env
+.env.*
 
 # OS
 .DS_Store

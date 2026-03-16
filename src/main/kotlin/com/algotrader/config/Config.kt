@@ -3,12 +3,15 @@ package com.algotrader.config
 object Config {
     // Alpaca Paper Trading credentials
     // https://app.alpaca.markets → Paper Trading → API Keys
-    val ALPACA_KEY_ID: String = System.getenv("ALPACA_KEY_ID") ?: "YOUR_KEY_ID"
-    val ALPACA_SECRET_KEY: String = System.getenv("ALPACA_SECRET_KEY") ?: "YOUR_SECRET_KEY"
+    val ALPACA_KEY_ID: String = System.getenv("ALPACA_KEY_ID")
+        ?: error("ALPACA_KEY_ID environment variable tanımlı değil")
+    val ALPACA_SECRET_KEY: String = System.getenv("ALPACA_SECRET_KEY")
+        ?: error("ALPACA_SECRET_KEY environment variable tanımlı değil")
 
     // Finnhub (ücretsiz fundamental data)
     // https://finnhub.io → Dashboard → API Key
-    val FINNHUB_API_KEY: String = System.getenv("FINNHUB_API_KEY") ?: "YOUR_FINNHUB_KEY"
+    val FINNHUB_API_KEY: String = System.getenv("FINNHUB_API_KEY")
+        ?: error("FINNHUB_API_KEY environment variable tanımlı değil")
 
     // Alpaca Paper endpoints (FREE - gerçek para yok)
     const val ALPACA_BASE_URL = "https://paper-api.alpaca.markets"

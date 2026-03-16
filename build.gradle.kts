@@ -46,4 +46,7 @@ kotlin {
 
 tasks.test {
     useJUnitPlatform()
+    environment("ALPACA_KEY_ID", System.getenv("ALPACA_KEY_ID") ?: "")
+    environment("ALPACA_SECRET_KEY", System.getenv("ALPACA_SECRET_KEY") ?: "")
+    environment("FINNHUB_API_KEY", System.getenv("FINNHUB_API_KEY") ?: "")
 }
