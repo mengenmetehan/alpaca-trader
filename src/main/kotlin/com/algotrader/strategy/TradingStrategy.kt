@@ -26,6 +26,9 @@ class TradingStrategy(
     // Açık pozisyon takibi (aynı sembolde çift pozisyon açmamak için)
     private val openPositions = mutableSetOf<String>()
 
+    // Sembol başına giriş fiyatı (stop loss hesabı için)
+    private val entryPrices = mutableMapOf<String, Double>()
+
     /**
      * Sabah başlangıcında çağır:
      * 1. Fundamental verileri yükle
@@ -59,54 +62,106 @@ class TradingStrategy(
 
     private fun processBar(bar: AlpacaBar): TradeOrder? {
         val engine = engines.getOrPut(bar.symbol) { IndicatorEngine(bar.symbol) }
-        val signal = engine.feed(bar) ?: return null
 
-        val fundamental = fundamentals[bar.symbol]
+        // --- Açık pozisyon yönetimi ---
+        // SL/TP için engine.feed'e gerek yok; bar'ın low/high ile fiyat eşiği kontrol edilir.
+        if (bar.symbol in openPositions) {
+            val entryPrice  = entryPrices[bar.symbol]!!
+            val stopPrice   = entryPrice * (1 - Config.Strategy.STOP_LOSS_PCT)
+            val targetPrice = entryPrice * (1 + Config.Strategy.TAKE_PROFIT_PCT)
 
-        return when {
-            // --- BUY sinyali ---
-            signal.isBuySignal && bar.symbol !in openPositions -> {
-                // Temel filtre: F/K makul olmalı (veya veri yoksa geç)
-                if (fundamental?.isUndervalued == false) {
-                    logger.info {
-                        "[${bar.symbol}] BUY sinyali var ama " +
-                        "F/K çok yüksek (${fundamental.peRatio}), atlandı"
-                    }
-                    return null
-                }
-
-                openPositions.add(bar.symbol)
-
-                TradeOrder(
-                    symbol   = bar.symbol,
-                    side     = OrderSide.BUY,
-                    notional = Config.Strategy.ORDER_NOTIONAL,
-                    reason   = "RSI:${"%.1f".format(signal.rsi)} " +
-                               "MACD:${if (signal.macdHistogram > 0) "↑" else "↓"} " +
-                               "BB:${signal.bollingerPosition} " +
-                               "VolRatio:${"%.2f".format(signal.volumeRatio)}"
-                ).also {
-                    logger.info { "🟢 BUY ORDER: ${bar.symbol} @ ${bar.close} | ${it.reason}" }
-                }
-            }
-
-            // --- SELL sinyali ---
-            signal.isSellSignal && bar.symbol in openPositions -> {
+            // 1. Stop loss: bar içinde low bu seviyeye indi mi?
+            if (bar.low <= stopPrice) {
                 openPositions.remove(bar.symbol)
-
-                TradeOrder(
+                entryPrices.remove(bar.symbol)
+                engine.feed(bar)
+                return TradeOrder(
                     symbol   = bar.symbol,
                     side     = OrderSide.SELL,
                     notional = Config.Strategy.ORDER_NOTIONAL,
+                    price    = bar.close,
+                    reason   = "STOP_LOSS giriş:${"%.2f".format(entryPrice)} " +
+                               "tetik:${"%.2f".format(stopPrice)} " +
+                               "kayıp:${"%.2f".format((stopPrice - entryPrice) / entryPrice * 100)}%"
+                ).also { logger.warn { "🛑 STOP LOSS: ${bar.symbol} | ${it.reason}" } }
+            }
+
+            // 2. Take profit: bar içinde high bu seviyeye çıktı mı?
+            if (bar.high >= targetPrice) {
+                openPositions.remove(bar.symbol)
+                entryPrices.remove(bar.symbol)
+                engine.feed(bar)
+                return TradeOrder(
+                    symbol   = bar.symbol,
+                    side     = OrderSide.SELL,
+                    notional = Config.Strategy.ORDER_NOTIONAL,
+                    price    = bar.close,
+                    reason   = "TAKE_PROFIT giriş:${"%.2f".format(entryPrice)} " +
+                               "hedef:${"%.2f".format(targetPrice)} " +
+                               "kazanç:+${"%.2f".format((targetPrice - entryPrice) / entryPrice * 100)}%"
+                ).also { logger.info { "🎯 TAKE PROFIT: ${bar.symbol} | ${it.reason}" } }
+            }
+
+            // 3. Teknik satış sinyali
+            val signal = engine.feed(bar) ?: return null
+            if (signal.isSellSignal) {
+                openPositions.remove(bar.symbol)
+                entryPrices.remove(bar.symbol)
+                return TradeOrder(
+                    symbol   = bar.symbol,
+                    side     = OrderSide.SELL,
+                    notional = Config.Strategy.ORDER_NOTIONAL,
+                    price    = bar.close,
                     reason   = "RSI:${"%.1f".format(signal.rsi)} " +
                                "MACD:${if (signal.macdHistogram > 0) "↑" else "↓"} " +
                                "BB:${signal.bollingerPosition}"
-                ).also {
-                    logger.info { "🔴 SELL ORDER: ${bar.symbol} @ ${bar.close} | ${it.reason}" }
-                }
+                ).also { logger.info { "🔴 SELL ORDER: ${bar.symbol} @ ${bar.close} | ${it.reason}" } }
             }
+            return null
+        }
 
-            else -> null
+        // --- BUY sinyali ---
+        val signal = engine.feed(bar) ?: return null
+        val fundamental = fundamentals[bar.symbol]
+
+        if (!signal.isBuySignal) return null
+
+        if (fundamental?.isUndervalued == false) {
+            logger.info {
+                "[${bar.symbol}] BUY sinyali var ama F/K çok yüksek (${fundamental.peRatio}), atlandı"
+            }
+            return null
+        }
+
+        // Haber yoğunluğu filtresi: son 1 saatte çok fazla haber varsa volatilite riski yüksek
+        val newsCount = finnhubClient.getRecentNewsCount(bar.symbol)
+        if (newsCount > Config.Strategy.MAX_NEWS_COUNT) {
+            logger.info {
+                "[${bar.symbol}] BUY sinyali var ama son ${Config.Strategy.NEWS_WINDOW_MINUTES}dk'da " +
+                "$newsCount haber var (limit: ${Config.Strategy.MAX_NEWS_COUNT}), atlandı"
+            }
+            return null
+        }
+
+        openPositions.add(bar.symbol)
+        entryPrices[bar.symbol] = bar.close
+
+        return TradeOrder(
+            symbol   = bar.symbol,
+            side     = OrderSide.BUY,
+            notional = Config.Strategy.ORDER_NOTIONAL,
+            price    = bar.close,
+            reason   = "RSI:${"%.1f".format(signal.rsi)} " +
+                       "MACD:${if (signal.macdHistogram > 0) "↑" else "↓"} " +
+                       "BB:${signal.bollingerPosition} " +
+                       "VolRatio:${"%.2f".format(signal.volumeRatio)}"
+        ).also {
+            logger.info {
+                "🟢 BUY ORDER: ${bar.symbol} @ ${bar.close} | " +
+                "SL:${"%.2f".format(bar.close * (1 - Config.Strategy.STOP_LOSS_PCT))} " +
+                "TP:${"%.2f".format(bar.close * (1 + Config.Strategy.TAKE_PROFIT_PCT))} | " +
+                it.reason
+            }
         }
     }
 

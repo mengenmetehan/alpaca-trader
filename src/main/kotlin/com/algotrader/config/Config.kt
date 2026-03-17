@@ -59,6 +59,16 @@ object Config {
         // Paper order boyutu (USD)
         const val ORDER_NOTIONAL = 1000.0
 
+        // Stop loss: giriş fiyatına göre maksimum kayıp yüzdesi (%2)
+        const val STOP_LOSS_PCT = 0.02
+
+        // Take profit: giriş fiyatına göre hedef kazanç yüzdesi (%4)
+        const val TAKE_PROFIT_PCT = 0.04
+
+        // Haber yoğunluğu filtresi: son N dakikada bu kadar haber varsa BUY engellenir
+        const val NEWS_WINDOW_MINUTES = 60
+        const val MAX_NEWS_COUNT = 3
+
         // Sayfalama: kaç sembol aynı anda izlensin
         const val PAGE_SIZE = 20
 

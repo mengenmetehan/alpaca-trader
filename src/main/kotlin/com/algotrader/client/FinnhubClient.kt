@@ -7,6 +7,9 @@ import mu.KotlinLogging
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.EOFException
+import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
 
 private val logger = KotlinLogging.logger {}
@@ -87,6 +90,40 @@ class FinnhubClient {
         }.also {
             val eligible = it.values.count { f -> f.isUndervalued }
             logger.info { "Fundamental filtre sonucu: ${symbols.size} sembolden $eligible tanesi uygun" }
+        }
+    }
+
+    /**
+     * Son [withinMinutes] dakika içinde sembol için kaç haber yayınlandığını döndürür.
+     * Haber yoğunluğu yüksekse fiyat belirsizliği artar → BUY filtrelenir.
+     * Hata durumunda 0 döner (filtre devreye girmez, işleme izin verilir).
+     */
+    fun getRecentNewsCount(symbol: String, withinMinutes: Int = Config.Strategy.NEWS_WINDOW_MINUTES): Int {
+        val now     = Instant.now()
+        val from    = now.minus(withinMinutes.toLong(), ChronoUnit.MINUTES)
+        val ny      = ZoneId.of("America/New_York")
+        val fromDate = from.atZone(ny).toLocalDate().toString()
+        val toDate   = now.atZone(ny).toLocalDate().toString()
+
+        val url = "${Config.FINNHUB_BASE_URL}/company-news" +
+                  "?symbol=$symbol&from=$fromDate&to=$toDate&token=${Config.FINNHUB_API_KEY}"
+
+        return runCatching {
+            val request = Request.Builder().url(url).get().build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: return@use 0
+                if (!response.isSuccessful) return@use 0
+
+                val cutoff = from.epochSecond
+                val count = json.parseToJsonElement(body).jsonArray
+                    .count { it.jsonObject["datetime"]?.jsonPrimitive?.longOrNull ?: 0L >= cutoff }
+
+                logger.debug { "[$symbol] Son ${withinMinutes}dk haber sayısı: $count" }
+                count
+            }
+        }.getOrElse { e ->
+            logger.warn(e) { "[$symbol] Haber sayısı alınamadı, filtre atlanıyor" }
+            0
         }
     }
 

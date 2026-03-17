@@ -73,10 +73,14 @@ class AlpacaRestClient {
      * Paper trading emri gönder
      */
     fun submitOrder(order: TradeOrder): AlpacaOrderResponse? {
+        // Notional yerine tam adet: floor(notional / fiyat), en az 1
+        // Tüm hisseler qty bazlı emri destekler; notional sadece fractionable hisseler için çalışır
+        val qty = maxOf(1, (order.notional / order.price).toInt())
+
         val orderRequest = AlpacaOrderRequest(
-            symbol   = order.symbol,
-            notional = order.notional.toString(),
-            side     = order.side.name.lowercase()
+            symbol = order.symbol,
+            qty    = qty.toString(),
+            side   = order.side.name.lowercase()
         )
 
         val body = json.encodeToString(orderRequest)
@@ -96,7 +100,7 @@ class AlpacaRestClient {
                 json.decodeFromString<AlpacaOrderResponse>(responseBody).also {
                     logger.info {
                         "✅ Order gönderildi: ${order.side} ${order.symbol} " +
-                        "\$${order.notional} → OrderID: ${it.id}"
+                        "${qty} adet @ ~\$${order.price} (~\$${order.notional}) → OrderID: ${it.id}"
                     }
                 }
             }

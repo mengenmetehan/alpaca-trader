@@ -91,7 +91,8 @@ enum class OrderStatus { PENDING, FILLED, CANCELLED, FAILED }
 data class TradeOrder(
     val symbol: String,
     val side: OrderSide,
-    val notional: Double,   // USD cinsinden
+    val notional: Double,   // USD cinsinden (adet hesabı için referans)
+    val price: Double,      // Sinyal anındaki bar kapanış fiyatı
     val reason: String,
     var status: OrderStatus = OrderStatus.PENDING,
     var alpacaOrderId: String? = null
@@ -102,7 +103,7 @@ data class TradeOrder(
 @Serializable
 data class AlpacaOrderRequest(
     val symbol: String,
-    val notional: String,
+    val qty: String,        // Tam adet (notional yerine — tüm hisseler destekler)
     val side: String,
     @SerialName("type") val orderType: String = "market",
     @SerialName("time_in_force") val timeInForce: String = "day"
