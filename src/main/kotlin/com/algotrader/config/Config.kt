@@ -21,8 +21,22 @@ object Config {
     // Finnhub REST
     const val FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 
-    // İzlenecek semboller (Nasdaq / Dow Jones bileşenleri)
-    val WATCHLIST = listOf("AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "TSLA", "META")
+    // Dow Jones 30 + Nasdaq-100 birleşimi (tekrar edenler çıkarıldı)
+    val FULL_WATCHLIST = listOf(
+        // Dow Jones 30
+        "AAPL", "MSFT", "NVDA", "AMZN", "UNH", "GS", "HD", "CAT", "AMGN", "MCD",
+        "V", "CRM", "BA", "HON", "AXP", "TRV", "JPM", "IBM", "JNJ", "WMT",
+        "PG", "CVX", "MMM", "KO", "DIS", "MRK", "CSCO", "VZ", "NKE", "DOW",
+        // Nasdaq-100 (Dow'da olmayanlar)
+        "META", "GOOGL", "GOOG", "TSLA", "AVGO", "COST", "NFLX", "AMD", "QCOM", "ADBE",
+        "TXN", "INTU", "CMCSA", "AMAT", "BKNG", "SBUX", "ISRG", "ADI", "REGN", "MDLZ",
+        "LRCX", "VRTX", "GILD", "MU", "PANW", "KLAC", "SNPS", "CDNS", "MELI", "ORLY",
+        "CTAS", "FTNT", "ADSK", "NXPI", "MNST", "ABNB", "MAR", "PCAR", "KDP", "AEP",
+        "IDXX", "MCHP", "ROST", "PAYX", "BIIB", "EA", "FAST", "WDAY", "ODFL", "DXCM",
+        "CTSH", "MRNA", "TEAM", "ZS", "CRWD", "DDOG", "GEHC", "ON", "TTWO", "CEG",
+        "BKR", "CCEP", "ROP", "VRSK", "ANSS", "DLTR", "TMUS", "DASH", "CSX", "INTC",
+        "WBD", "TTD", "CSGP", "CDW", "CHTR", "PYPL", "MRVL", "PDD", "SMCI", "AZN"
+    )
 
     // Strateji parametreleri
     object Strategy {
@@ -44,5 +58,11 @@ object Config {
 
         // Paper order boyutu (USD)
         const val ORDER_NOTIONAL = 1000.0
+
+        // Sayfalama: kaç sembol aynı anda izlensin
+        const val PAGE_SIZE = 20
+
+        // Her kaç ms'de bir sonraki sayfaya geç (2 dakika)
+        const val PAGE_ROTATION_MS = 2 * 60 * 1000L
     }
 }

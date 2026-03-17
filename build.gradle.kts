@@ -44,9 +44,18 @@ kotlin {
     jvmToolchain(17)
 }
 
+fun envOrProp(key: String) =
+    System.getenv(key) ?: (project.findProperty(key) as? String) ?: ""
+
 tasks.test {
     useJUnitPlatform()
-    environment("ALPACA_KEY_ID", System.getenv("ALPACA_KEY_ID") ?: "")
-    environment("ALPACA_SECRET_KEY", System.getenv("ALPACA_SECRET_KEY") ?: "")
-    environment("FINNHUB_API_KEY", System.getenv("FINNHUB_API_KEY") ?: "")
+    environment("ALPACA_KEY_ID", envOrProp("ALPACA_KEY_ID"))
+    environment("ALPACA_SECRET_KEY", envOrProp("ALPACA_SECRET_KEY"))
+    environment("FINNHUB_API_KEY", envOrProp("FINNHUB_API_KEY"))
+}
+
+tasks.named<JavaExec>("run") {
+    environment("ALPACA_KEY_ID", envOrProp("ALPACA_KEY_ID"))
+    environment("ALPACA_SECRET_KEY", envOrProp("ALPACA_SECRET_KEY"))
+    environment("FINNHUB_API_KEY", envOrProp("FINNHUB_API_KEY"))
 }

@@ -5,8 +5,10 @@ import com.algotrader.client.FinnhubClient
 import com.algotrader.config.Config
 import com.algotrader.indicator.IndicatorEngine
 import com.algotrader.model.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.withContext
 import mu.KotlinLogging
 
 private val logger = KotlinLogging.logger {}
@@ -109,4 +111,31 @@ class TradingStrategy(
     }
 
     fun getOpenPositions(): Set<String> = openPositions.toSet()
+
+    /**
+     * Yeni sayfaya geç:
+     * - Daha önce görülmemiş semboller için fundamentals + historical bar yükle
+     * - Engine cache kalıcıdır; aynı sembol tekrar gelince sıfırdan ısınmaya gerek yok
+     */
+    suspend fun rotatePage(newSymbols: List<String>) = withContext(Dispatchers.IO) {
+        logger.info { "🔄 Sayfa değişiyor → ${newSymbols.size} sembol: $newSymbols" }
+
+        // Sadece cache'de olmayan semboller için fundamentals çek
+        val unknownSymbols = newSymbols.filter { it !in fundamentals }
+        if (unknownSymbols.isNotEmpty()) {
+            val newFundamentals = finnhubClient.loadFundamentals(unknownSymbols)
+            fundamentals = fundamentals + newFundamentals
+        }
+
+        // Sadece daha önce ısınmamış semboller için historical bar yükle
+        newSymbols.filter { it !in engines }.forEach { symbol ->
+            val engine = IndicatorEngine(symbol)
+            engines[symbol] = engine
+            val bars = restClient.getHistoricalBars(symbol, limit = 150)
+            bars.forEach { bar -> engine.feed(bar) }
+            logger.info { "[$symbol] ${engine.barCount()} bar ile ısındı" }
+        }
+
+        logger.info { "✅ Sayfa hazır. Cache'deki toplam engine: ${engines.size}" }
+    }
 }

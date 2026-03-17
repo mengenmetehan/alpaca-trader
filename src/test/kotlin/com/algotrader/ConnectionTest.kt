@@ -103,8 +103,9 @@ class ConnectionTest {
         assertEquals("AAPL", fundamental.symbol)
 
         // AAPL için P/E her zaman dolu olmalı
-        assertNotNull(fundamental.peRatio, "AAPL P/E ratio null geldi — Finnhub key kontrol edilmeli")
-        assertTrue(fundamental.peRatio > 0, "P/E sıfır veya negatif olamaz")
+        val peRatio = fundamental.peRatio
+        assertNotNull(peRatio, "AAPL P/E ratio null geldi — Finnhub key kontrol edilmeli")
+        assertTrue(peRatio > 0, "P/E sıfır veya negatif olamaz")
 
         println("📌 AAPL P/E: ${"%.2f".format(fundamental.peRatio)} | " +
                 "P/B: ${fundamental.pbRatio?.let { "%.2f".format(it) } ?: "N/A"} | " +

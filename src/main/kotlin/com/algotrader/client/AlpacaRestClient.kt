@@ -44,7 +44,9 @@ class AlpacaRestClient {
                 }
 
                 val root = json.parseToJsonElement(body).jsonObject
-                val bars = root["bars"]?.jsonArray ?: return emptyList()
+                val bars = root["bars"]
+                    ?.takeIf { it !is JsonNull }
+                    ?.jsonArray ?: return emptyList()
 
                 bars.map { bar ->
                     val obj = bar.jsonObject

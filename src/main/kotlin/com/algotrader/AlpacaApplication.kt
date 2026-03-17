@@ -13,11 +13,17 @@ private val logger = KotlinLogging.logger {}
 
 fun main() = runBlocking {
     logger.info { "🚀 AlgoTrader başlatılıyor..." }
-    logger.info { "📋 Watchlist: ${Config.WATCHLIST}" }
+
+    // Tüm semboller 20'lik sayfalara bölünür
+    val pages = Config.FULL_WATCHLIST.chunked(Config.Strategy.PAGE_SIZE)
+    logger.info { "📋 Toplam ${Config.FULL_WATCHLIST.size} sembol → ${pages.size} sayfa (${Config.Strategy.PAGE_SIZE}'er)" }
+
+    var pageIndex = 0
+    val firstPage = pages[pageIndex]
 
     val restClient   = AlpacaRestClient()
     val finnhub      = FinnhubClient()
-    val streamClient = AlpacaStreamClient(Config.WATCHLIST)
+    val streamClient = AlpacaStreamClient(firstPage)
     val strategy     = TradingStrategy(restClient, finnhub)
 
     // Hesap bilgilerini göster
@@ -29,12 +35,12 @@ fun main() = runBlocking {
         }
     }
 
-    // Stratejiyi başlat: fundamentals + historical bar ısınması
-    strategy.initialize(Config.WATCHLIST)
+    // İlk sayfa: fundamentals + historical bar ısınması
+    strategy.initialize(firstPage)
 
-    // WebSocket stream başlat
+    // WebSocket stream başlat (ilk sayfa ile)
     streamClient.connect()
-    logger.info { "📡 WebSocket stream aktif, bar bekleniyor..." }
+    logger.info { "📡 WebSocket stream aktif | Sayfa 1/${pages.size}: $firstPage" }
 
     // Bar'ları işle → sinyal üret → emir gönder
     val tradingJob = launch {
@@ -55,6 +61,27 @@ fun main() = runBlocking {
                     (order.alpacaOrderId?.let { " [ID: $it]" } ?: "")
                 }
             }
+    }
+
+    // Her 2 dakikada bir sonraki sayfaya geç
+    val rotationJob = launch {
+        while (isActive) {
+            delay(Config.Strategy.PAGE_ROTATION_MS)
+            pageIndex = (pageIndex + 1) % pages.size
+            val newPage = pages[pageIndex]
+
+            // Açık pozisyonlu semboller sayfadan çıksa bile stream'de kalsın
+            val openSymbols = strategy.getOpenPositions().toList()
+            val activeSymbols = (newPage + openSymbols).distinct()
+
+            logger.info { "🔄 Sayfa ${pageIndex + 1}/${pages.size} → $newPage" }
+            if (openSymbols.isNotEmpty()) {
+                logger.info { "📌 Açık pozisyon korunuyor: $openSymbols" }
+            }
+
+            strategy.rotatePage(activeSymbols)
+            streamClient.resubscribe(activeSymbols)
+        }
     }
 
     // Pozisyon özeti her 5 dakikada bir logla
@@ -84,6 +111,7 @@ fun main() = runBlocking {
         runBlocking {
             tradingJob.cancel()
             monitorJob.cancel()
+            rotationJob.cancel()
         }
         streamClient.close()
     })

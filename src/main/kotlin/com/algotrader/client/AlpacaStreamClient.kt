@@ -15,13 +15,51 @@ import okhttp3.*
 private val logger = KotlinLogging.logger {}
 
 class AlpacaStreamClient(
-    private val symbols: List<String> = Config.WATCHLIST
+    private val initialSymbols: List<String>
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient()
     private val barChannel = Channel<AlpacaBar>(capacity = Channel.UNLIMITED)
 
     val barFlow: Flow<AlpacaBar> = barChannel.receiveAsFlow()
+
+    @Volatile private var activeWebSocket: WebSocket? = null
+    private val currentSubscriptions = mutableSetOf<String>()
+
+    /**
+     * Mevcut abonelikleri yeni sembol listesiyle değiştir (reconnect olmadan).
+     * Açık pozisyonlar her zaman activeSymbols içinde gönderilmeli.
+     */
+    fun resubscribe(newSymbols: List<String>) {
+        val ws = activeWebSocket ?: run {
+            logger.warn { "resubscribe çağrıldı ama WebSocket bağlı değil" }
+            return
+        }
+
+        val newSet = newSymbols.toSet()
+        val toUnsubscribe = currentSubscriptions - newSet
+        val toSubscribe   = newSet - currentSubscriptions
+
+        if (toUnsubscribe.isNotEmpty()) {
+            val msg = buildJsonObject {
+                put("action", "unsubscribe")
+                putJsonArray("bars") { toUnsubscribe.forEach { add(it) } }
+            }.toString()
+            ws.send(msg)
+            currentSubscriptions -= toUnsubscribe
+            logger.info { "Unsubscribe: $toUnsubscribe" }
+        }
+
+        if (toSubscribe.isNotEmpty()) {
+            val msg = buildJsonObject {
+                put("action", "subscribe")
+                putJsonArray("bars") { toSubscribe.forEach { add(it) } }
+            }.toString()
+            ws.send(msg)
+            currentSubscriptions += toSubscribe
+            logger.info { "Subscribe: $toSubscribe" }
+        }
+    }
 
     fun connect() {
         val request = Request.Builder()
@@ -33,6 +71,7 @@ class AlpacaStreamClient(
         client.newWebSocket(request, object : WebSocketListener() {
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                activeWebSocket = webSocket
                 logger.info { "WebSocket bağlandı" }
             }
 
@@ -77,11 +116,13 @@ class AlpacaStreamClient(
                     "success" -> {
                         val msg = obj["msg"]?.jsonPrimitive?.content
                         if (msg == "authenticated") {
-                            logger.info { "Auth başarılı, ${symbols.size} sembol subscribe ediliyor..." }
-                            val subscribeMsg = json.encodeToString(
-                                AlpacaSubscribeMsg(bars = symbols)
-                            )
+                            logger.info { "Auth başarılı, ${initialSymbols.size} sembol subscribe ediliyor..." }
+                            val subscribeMsg = buildJsonObject {
+                                put("action", "subscribe")
+                                putJsonArray("bars") { initialSymbols.forEach { add(it) } }
+                            }.toString()
                             webSocket.send(subscribeMsg)
+                            currentSubscriptions += initialSymbols
                         }
                     }
 

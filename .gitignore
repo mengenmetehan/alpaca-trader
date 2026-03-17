@@ -17,6 +17,7 @@ build/
 # API Keys
 .env
 .env.*
+gradle.properties
 
 # OS
 .DS_Store
