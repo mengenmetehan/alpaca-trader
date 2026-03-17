@@ -33,8 +33,6 @@ export ALPACA_SECRET_KEY="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 export FINNHUB_API_KEY="xxxxxxxxxxxxxxxxxxxxxxxxxx"
 ```
 
-Ya da `Config.kt` içinde doğrudan yaz (production'da önerilmez).
-
 ### 3. Çalıştır
 
 ```bash
