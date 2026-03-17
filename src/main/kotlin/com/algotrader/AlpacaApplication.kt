@@ -4,7 +4,9 @@ import com.algotrader.client.AlpacaRestClient
 import com.algotrader.client.AlpacaStreamClient
 import com.algotrader.client.FinnhubClient
 import com.algotrader.config.Config
+import com.algotrader.db.DatabaseService
 import com.algotrader.model.OrderStatus
+import com.algotrader.notification.TelegramClient
 import com.algotrader.strategy.TradingStrategy
 import kotlinx.coroutines.*
 import mu.KotlinLogging
@@ -25,6 +27,8 @@ fun main() = runBlocking {
     val finnhub      = FinnhubClient()
     val streamClient = AlpacaStreamClient(firstPage)
     val strategy     = TradingStrategy(restClient, finnhub)
+    val telegram     = TelegramClient()
+    val db           = DatabaseService()
 
     // Hesap bilgilerini göster
     restClient.getAccountInfo()?.let { account ->
@@ -60,6 +64,9 @@ fun main() = runBlocking {
                     "Order sonucu: ${order.symbol} ${order.side} → ${order.status}" +
                     (order.alpacaOrderId?.let { " [ID: $it]" } ?: "")
                 }
+
+                telegram.notifyOrder(order)
+                db.saveOrder(order)
             }
     }
 
@@ -114,6 +121,7 @@ fun main() = runBlocking {
             rotationJob.cancel()
         }
         streamClient.close()
+        db.close()
     })
 
     tradingJob.join()

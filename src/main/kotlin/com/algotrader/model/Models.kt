@@ -94,6 +94,7 @@ data class TradeOrder(
     val notional: Double,   // USD cinsinden (adet hesabı için referans)
     val price: Double,      // Sinyal anındaki bar kapanış fiyatı
     val reason: String,
+    var qty: Int = 0,                    // submitOrder tarafından set edilir
     var status: OrderStatus = OrderStatus.PENDING,
     var alpacaOrderId: String? = null
 )

@@ -76,6 +76,7 @@ class AlpacaRestClient {
         // Notional yerine tam adet: floor(notional / fiyat), en az 1
         // Tüm hisseler qty bazlı emri destekler; notional sadece fractionable hisseler için çalışır
         val qty = maxOf(1, (order.notional / order.price).toInt())
+        order.qty = qty
 
         val orderRequest = AlpacaOrderRequest(
             symbol = order.symbol,

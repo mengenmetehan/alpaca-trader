@@ -28,6 +28,9 @@ dependencies {
     // Technical indicators (ta4j)
     implementation("org.ta4j:ta4j-core:0.15")
 
+    // PostgreSQL JDBC
+    implementation("org.postgresql:postgresql:42.7.3")
+
     // Testing
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")
@@ -49,13 +52,19 @@ fun envOrProp(key: String) =
 
 tasks.test {
     useJUnitPlatform()
-    environment("ALPACA_KEY_ID", envOrProp("ALPACA_KEY_ID"))
-    environment("ALPACA_SECRET_KEY", envOrProp("ALPACA_SECRET_KEY"))
-    environment("FINNHUB_API_KEY", envOrProp("FINNHUB_API_KEY"))
+    environment("ALPACA_KEY_ID",        envOrProp("ALPACA_KEY_ID"))
+    environment("ALPACA_SECRET_KEY",    envOrProp("ALPACA_SECRET_KEY"))
+    environment("FINNHUB_API_KEY",      envOrProp("FINNHUB_API_KEY"))
+    environment("TELEGRAM_BOT_TOKEN",   envOrProp("TELEGRAM_BOT_TOKEN"))
+    environment("TELEGRAM_CHAT_ID",     envOrProp("TELEGRAM_CHAT_ID"))
+    environment("DATABASE_URL",         envOrProp("DATABASE_URL"))
 }
 
 tasks.named<JavaExec>("run") {
-    environment("ALPACA_KEY_ID", envOrProp("ALPACA_KEY_ID"))
-    environment("ALPACA_SECRET_KEY", envOrProp("ALPACA_SECRET_KEY"))
-    environment("FINNHUB_API_KEY", envOrProp("FINNHUB_API_KEY"))
+    environment("ALPACA_KEY_ID",        envOrProp("ALPACA_KEY_ID"))
+    environment("ALPACA_SECRET_KEY",    envOrProp("ALPACA_SECRET_KEY"))
+    environment("FINNHUB_API_KEY",      envOrProp("FINNHUB_API_KEY"))
+    environment("TELEGRAM_BOT_TOKEN",   envOrProp("TELEGRAM_BOT_TOKEN"))
+    environment("TELEGRAM_CHAT_ID",     envOrProp("TELEGRAM_CHAT_ID"))
+    environment("DATABASE_URL",         envOrProp("DATABASE_URL"))
 }

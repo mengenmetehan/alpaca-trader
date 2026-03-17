@@ -21,6 +21,14 @@ object Config {
     // Finnhub REST
     const val FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 
+    // Telegram (opsiyonel — tanımlı değilse bildirim gönderilmez)
+    val TELEGRAM_BOT_TOKEN: String? = System.getenv("TELEGRAM_BOT_TOKEN")
+    val TELEGRAM_CHAT_ID: String?   = System.getenv("TELEGRAM_CHAT_ID")
+
+    // PostgreSQL (opsiyonel — tanımlı değilse DB kaydı yapılmaz)
+    // Örnek: postgresql://user:pass@localhost:5432/algotrader
+    val DATABASE_URL: String? = System.getenv("DATABASE_URL")
+
     // Dow Jones 30 + Nasdaq-100 birleşimi (tekrar edenler çıkarıldı)
     val FULL_WATCHLIST = listOf(
         // Dow Jones 30
