@@ -5,10 +5,8 @@ import com.algotrader.client.FinnhubClient
 import com.algotrader.config.Config
 import com.algotrader.indicator.IndicatorEngine
 import com.algotrader.model.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.withContext
 import mu.KotlinLogging
 
 private val logger = KotlinLogging.logger {}
@@ -23,34 +21,54 @@ class TradingStrategy(
     // Temel veriler (sabah bir kez yüklenir)
     private var fundamentals = mapOf<String, FundamentalData>()
 
-    // Açık pozisyon takibi (aynı sembolde çift pozisyon açmamak için)
+    // Long pozisyon takibi
     private val openPositions = mutableSetOf<String>()
+    private val entryPrices   = mutableMapOf<String, Double>()
 
-    // Sembol başına giriş fiyatı (stop loss hesabı için)
-    private val entryPrices = mutableMapOf<String, Double>()
+    // Short pozisyon takibi
+    private val shortPositions  = mutableSetOf<String>()
+    private val shortEntryPrices = mutableMapOf<String, Double>()
 
     /**
-     * Sabah başlangıcında çağır:
-     * 1. Fundamental verileri yükle
-     * 2. Historical bar ile indikatörleri ısıt
+     * Tüm watchlist için fundamental yükle, PE'ye göre sırala, en iyi topN'i döndür.
+     * Fundamentals cache'e alınır — warmUp için tekrar yüklenmez.
      */
-    fun initialize(symbols: List<String>) {
-        logger.info { "Strateji başlatılıyor: $symbols" }
-
-        // 1. Fundamentals
+    fun loadAndSelectTop(symbols: List<String>, topN: Int): List<String> {
+        logger.info { "Fundamental tarama başlıyor: ${symbols.size} sembol..." }
         fundamentals = finnhubClient.loadFundamentals(symbols)
 
-        // 2. Her sembol için IndicatorEngine oluştur ve historical bar ile ısıt
+        val top = fundamentals.entries
+            .filter { (_, f) -> f.isUndervalued }
+            .sortedBy { (_, f) -> f.peRatio!! }
+            .take(topN)
+
+        if (top.isEmpty()) {
+            logger.error { "Hiç uygun temel değer bulunamadı!" }
+            return emptyList()
+        }
+
+        logger.info { "🏆 En iyi ${top.size} hisse seçildi:" }
+        top.forEachIndexed { i, (symbol, f) ->
+            logger.info { "  ${i + 1}. $symbol → PE: ${"%.1f".format(f.peRatio)} | PB: ${f.pbRatio?.let { "%.2f".format(it) } ?: "N/A"}" }
+        }
+
+        return top.map { it.key }
+    }
+
+    /**
+     * Verilen semboller için historical bar ile indikatörleri ısıt.
+     * Fundamentals önceden yüklenmiş olmalı (loadAndSelectTop çağrıldıktan sonra).
+     */
+    fun warmUp(symbols: List<String>) {
+        logger.info { "İndikatörler ısındırılıyor: $symbols" }
         symbols.forEach { symbol ->
             val engine = IndicatorEngine(symbol)
             engines[symbol] = engine
-
-            val historicalBars = restClient.getHistoricalBars(symbol, limit = 150)
-            historicalBars.forEach { bar -> engine.feed(bar) }
-
+            val bars = restClient.getHistoricalBars(symbol, limit = 150)
+            bars.forEach { bar -> engine.feed(bar) }
             logger.info { "[$symbol] ${engine.barCount()} bar ile ısındı" }
         }
-
+        engines.values.forEach { it.setLive() }
         logger.info { "Strateji hazır. Canlı stream bekleniyor..." }
     }
 
@@ -120,77 +138,125 @@ class TradingStrategy(
             return null
         }
 
-        // --- BUY sinyali ---
+        // --- Short pozisyon yönetimi ---
+        if (bar.symbol in shortPositions) {
+            val entryPrice  = shortEntryPrices[bar.symbol]!!
+            val stopPrice   = entryPrice * (1 + Config.Strategy.STOP_LOSS_PCT)    // fiyat yukarı giderse zarar
+            val targetPrice = entryPrice * (1 - Config.Strategy.TAKE_PROFIT_PCT)  // fiyat aşağı giderse kâr
+
+            // 1. Stop loss: bar içinde high bu seviyenin üzerine çıktı mı?
+            if (bar.high >= stopPrice) {
+                shortPositions.remove(bar.symbol)
+                shortEntryPrices.remove(bar.symbol)
+                engine.feed(bar)
+                return TradeOrder(
+                    symbol   = bar.symbol,
+                    side     = OrderSide.COVER,
+                    notional = Config.Strategy.ORDER_NOTIONAL,
+                    price    = bar.close,
+                    reason   = "SHORT_SL giriş:${"%.2f".format(entryPrice)} " +
+                               "tetik:${"%.2f".format(stopPrice)} " +
+                               "kayıp:+${"%.2f".format((stopPrice - entryPrice) / entryPrice * 100)}%"
+                ).also { logger.warn { "🛑 SHORT STOP LOSS: ${bar.symbol} | ${it.reason}" } }
+            }
+
+            // 2. Take profit: bar içinde low bu seviyenin altına indi mi?
+            if (bar.low <= targetPrice) {
+                shortPositions.remove(bar.symbol)
+                shortEntryPrices.remove(bar.symbol)
+                engine.feed(bar)
+                return TradeOrder(
+                    symbol   = bar.symbol,
+                    side     = OrderSide.COVER,
+                    notional = Config.Strategy.ORDER_NOTIONAL,
+                    price    = bar.close,
+                    reason   = "SHORT_TP giriş:${"%.2f".format(entryPrice)} " +
+                               "hedef:${"%.2f".format(targetPrice)} " +
+                               "kazanç:+${"%.2f".format((entryPrice - targetPrice) / entryPrice * 100)}%"
+                ).also { logger.info { "🎯 SHORT TAKE PROFIT: ${bar.symbol} | ${it.reason}" } }
+            }
+
+            // 3. Teknik kapama: BUY sinyali
+            val signal = engine.feed(bar) ?: return null
+            if (signal.isBuySignal) {
+                shortPositions.remove(bar.symbol)
+                shortEntryPrices.remove(bar.symbol)
+                return TradeOrder(
+                    symbol   = bar.symbol,
+                    side     = OrderSide.COVER,
+                    notional = Config.Strategy.ORDER_NOTIONAL,
+                    price    = bar.close,
+                    reason   = "SHORT_COVER RSI:${"%.1f".format(signal.rsi)} " +
+                               "MACD:${if (signal.macdHistogram > 0) "↑" else "↓"} " +
+                               "BB:${signal.bollingerPosition}"
+                ).also { logger.info { "🔵 SHORT COVER: ${bar.symbol} @ ${bar.close} | ${it.reason}" } }
+            }
+            return null
+        }
+
+        // --- BUY / SHORT sinyali (pozisyon yok) ---
         val signal = engine.feed(bar) ?: return null
         val fundamental = fundamentals[bar.symbol]
 
-        if (!signal.isBuySignal) return null
-
-        if (fundamental?.isUndervalued == false) {
-            logger.info {
-                "[${bar.symbol}] BUY sinyali var ama F/K çok yüksek (${fundamental.peRatio}), atlandı"
+        // BUY sinyali → long aç
+        if (signal.isBuySignal) {
+            if (fundamental?.isUndervalued != true) {
+                logger.info {
+                    "[${bar.symbol}] BUY sinyali var ama temel veri uygun değil " +
+                    "(PE: ${fundamental?.peRatio ?: "null"}), atlandı"
+                }
+                return null
             }
-            return null
-        }
 
-        // Haber yoğunluğu filtresi: son 1 saatte çok fazla haber varsa volatilite riski yüksek
-        val newsCount = finnhubClient.getRecentNewsCount(bar.symbol)
-        if (newsCount > Config.Strategy.MAX_NEWS_COUNT) {
-            logger.info {
-                "[${bar.symbol}] BUY sinyali var ama son ${Config.Strategy.NEWS_WINDOW_MINUTES}dk'da " +
-                "$newsCount haber var (limit: ${Config.Strategy.MAX_NEWS_COUNT}), atlandı"
-            }
-            return null
-        }
+            openPositions.add(bar.symbol)
+            entryPrices[bar.symbol] = bar.close
 
-        openPositions.add(bar.symbol)
-        entryPrices[bar.symbol] = bar.close
-
-        return TradeOrder(
-            symbol   = bar.symbol,
-            side     = OrderSide.BUY,
-            notional = Config.Strategy.ORDER_NOTIONAL,
-            price    = bar.close,
-            reason   = "RSI:${"%.1f".format(signal.rsi)} " +
-                       "MACD:${if (signal.macdHistogram > 0) "↑" else "↓"} " +
-                       "BB:${signal.bollingerPosition} " +
-                       "VolRatio:${"%.2f".format(signal.volumeRatio)}"
-        ).also {
-            logger.info {
-                "🟢 BUY ORDER: ${bar.symbol} @ ${bar.close} | " +
-                "SL:${"%.2f".format(bar.close * (1 - Config.Strategy.STOP_LOSS_PCT))} " +
-                "TP:${"%.2f".format(bar.close * (1 + Config.Strategy.TAKE_PROFIT_PCT))} | " +
-                it.reason
+            return TradeOrder(
+                symbol   = bar.symbol,
+                side     = OrderSide.BUY,
+                notional = Config.Strategy.ORDER_NOTIONAL,
+                price    = bar.close,
+                reason   = "RSI:${"%.1f".format(signal.rsi)} " +
+                           "MACD:${if (signal.macdHistogram > 0) "↑" else "↓"} " +
+                           "BB:${signal.bollingerPosition} " +
+                           "VolRatio:${"%.2f".format(signal.volumeRatio)}"
+            ).also {
+                logger.info {
+                    "🟢 BUY ORDER: ${bar.symbol} @ ${bar.close} | " +
+                    "SL:${"%.2f".format(bar.close * (1 - Config.Strategy.STOP_LOSS_PCT))} " +
+                    "TP:${"%.2f".format(bar.close * (1 + Config.Strategy.TAKE_PROFIT_PCT))} | " +
+                    it.reason
+                }
             }
         }
+
+        // SELL sinyali → short aç
+        if (signal.isSellSignal) {
+            shortPositions.add(bar.symbol)
+            shortEntryPrices[bar.symbol] = bar.close
+
+            return TradeOrder(
+                symbol   = bar.symbol,
+                side     = OrderSide.SHORT,
+                notional = Config.Strategy.ORDER_NOTIONAL,
+                price    = bar.close,
+                reason   = "RSI:${"%.1f".format(signal.rsi)} " +
+                           "MACD:${if (signal.macdHistogram > 0) "↑" else "↓"} " +
+                           "BB:${signal.bollingerPosition} " +
+                           "VolRatio:${"%.2f".format(signal.volumeRatio)}"
+            ).also {
+                logger.info {
+                    "🔴 SHORT ORDER: ${bar.symbol} @ ${bar.close} | " +
+                    "SL:${"%.2f".format(bar.close * (1 + Config.Strategy.STOP_LOSS_PCT))} " +
+                    "TP:${"%.2f".format(bar.close * (1 - Config.Strategy.TAKE_PROFIT_PCT))} | " +
+                    it.reason
+                }
+            }
+        }
+
+        return null
     }
 
     fun getOpenPositions(): Set<String> = openPositions.toSet()
 
-    /**
-     * Yeni sayfaya geç:
-     * - Daha önce görülmemiş semboller için fundamentals + historical bar yükle
-     * - Engine cache kalıcıdır; aynı sembol tekrar gelince sıfırdan ısınmaya gerek yok
-     */
-    suspend fun rotatePage(newSymbols: List<String>) = withContext(Dispatchers.IO) {
-        logger.info { "🔄 Sayfa değişiyor → ${newSymbols.size} sembol: $newSymbols" }
-
-        // Sadece cache'de olmayan semboller için fundamentals çek
-        val unknownSymbols = newSymbols.filter { it !in fundamentals }
-        if (unknownSymbols.isNotEmpty()) {
-            val newFundamentals = finnhubClient.loadFundamentals(unknownSymbols)
-            fundamentals = fundamentals + newFundamentals
-        }
-
-        // Sadece daha önce ısınmamış semboller için historical bar yükle
-        newSymbols.filter { it !in engines }.forEach { symbol ->
-            val engine = IndicatorEngine(symbol)
-            engines[symbol] = engine
-            val bars = restClient.getHistoricalBars(symbol, limit = 150)
-            bars.forEach { bar -> engine.feed(bar) }
-            logger.info { "[$symbol] ${engine.barCount()} bar ile ısındı" }
-        }
-
-        logger.info { "✅ Sayfa hazır. Cache'deki toplam engine: ${engines.size}" }
-    }
 }

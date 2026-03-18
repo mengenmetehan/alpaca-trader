@@ -14,11 +14,14 @@ import java.util.concurrent.TimeUnit
 
 private val logger = KotlinLogging.logger {}
 
-private const val RATE_LIMIT_DELAY_MS = 1100L  // 60 req/dk = 1 req/sn, +100ms güvenlik marjı
+ private const val DEFAULT_RATE_LIMIT_DELAY_MS = 1100L  // 60 req/dk = 1 req/sn, +100ms güvenlik marjı
 private const val MAX_RETRIES = 3
 private const val RETRY_DELAY_MS = 2000L
 
-class FinnhubClient {
+class FinnhubClient(
+    private val baseUrl: String = Config.FINNHUB_BASE_URL,
+    private val rateLimitDelayMs: Long = DEFAULT_RATE_LIMIT_DELAY_MS
+) {
     private val json = Json { ignoreUnknownKeys = true }
     // connectionPool: stale connection reuse sorununu önlemek için keep-alive süresi kısaltıldı
     private val client = OkHttpClient.Builder()
@@ -30,7 +33,7 @@ class FinnhubClient {
      * EOFException (stale connection) için MAX_RETRIES kadar otomatik tekrar dener.
      */
     fun getFundamentals(symbol: String): FundamentalData {
-        val url = "${Config.FINNHUB_BASE_URL}/stock/metric" +
+        val url = "$baseUrl/stock/metric" +
                   "?symbol=$symbol&metric=all&token=${Config.FINNHUB_API_KEY}"
 
         repeat(MAX_RETRIES) { attempt ->
@@ -85,7 +88,7 @@ class FinnhubClient {
     fun loadFundamentals(symbols: List<String>): Map<String, FundamentalData> {
         logger.info { "Fundamental veriler yükleniyor: $symbols" }
         return symbols.associateWith { symbol ->
-            Thread.sleep(RATE_LIMIT_DELAY_MS)
+            if (rateLimitDelayMs > 0) Thread.sleep(rateLimitDelayMs)
             getFundamentals(symbol)
         }.also {
             val eligible = it.values.count { f -> f.isUndervalued }
@@ -105,7 +108,7 @@ class FinnhubClient {
         val fromDate = from.atZone(ny).toLocalDate().toString()
         val toDate   = now.atZone(ny).toLocalDate().toString()
 
-        val url = "${Config.FINNHUB_BASE_URL}/company-news" +
+        val url = "$baseUrl/company-news" +
                   "?symbol=$symbol&from=$fromDate&to=$toDate&token=${Config.FINNHUB_API_KEY}"
 
         return runCatching {

@@ -43,7 +43,7 @@ class DatabaseService {
                 stmt.setString(8, order.alpacaOrderId)
                 stmt.executeUpdate()
             }
-            logger.debug { "DB kaydedildi: ${order.side} ${order.symbol}" }
+            logger.info { "💾 DB kaydedildi: ${order.side} ${order.symbol} @ ${order.price} [${order.status}]" }
         }.onFailure { e ->
             logger.error(e) { "DB kayıt hatası: ${order.symbol}" }
             // Bağlantı kopmuşsa yeniden bağlan

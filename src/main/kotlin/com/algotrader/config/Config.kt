@@ -1,17 +1,21 @@
 package com.algotrader.config
 
 object Config {
+    private fun required(key: String): String =
+        (System.getenv(key) ?: System.getProperty(key))?.takeIf { it.isNotBlank() }
+            ?: error("$key environment variable tanımlı değil")
+
+    private fun optional(key: String): String? =
+        (System.getenv(key) ?: System.getProperty(key))?.takeIf { it.isNotBlank() }
+
     // Alpaca Paper Trading credentials
     // https://app.alpaca.markets → Paper Trading → API Keys
-    val ALPACA_KEY_ID: String = System.getenv("ALPACA_KEY_ID")
-        ?: error("ALPACA_KEY_ID environment variable tanımlı değil")
-    val ALPACA_SECRET_KEY: String = System.getenv("ALPACA_SECRET_KEY")
-        ?: error("ALPACA_SECRET_KEY environment variable tanımlı değil")
+    val ALPACA_KEY_ID: String    = required("ALPACA_KEY_ID")
+    val ALPACA_SECRET_KEY: String = required("ALPACA_SECRET_KEY")
 
     // Finnhub (ücretsiz fundamental data)
     // https://finnhub.io → Dashboard → API Key
-    val FINNHUB_API_KEY: String = System.getenv("FINNHUB_API_KEY")
-        ?: error("FINNHUB_API_KEY environment variable tanımlı değil")
+    val FINNHUB_API_KEY: String  = required("FINNHUB_API_KEY")
 
     // Alpaca Paper endpoints (FREE - gerçek para yok)
     const val ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
@@ -22,12 +26,12 @@ object Config {
     const val FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 
     // Telegram (opsiyonel — tanımlı değilse bildirim gönderilmez)
-    val TELEGRAM_BOT_TOKEN: String? = System.getenv("TELEGRAM_BOT_TOKEN")
-    val TELEGRAM_CHAT_ID: String?   = System.getenv("TELEGRAM_CHAT_ID")
+    val TELEGRAM_BOT_TOKEN: String? = optional("TELEGRAM_BOT_TOKEN")
+    val TELEGRAM_CHAT_ID: String?   = optional("TELEGRAM_CHAT_ID")
 
     // PostgreSQL (opsiyonel — tanımlı değilse DB kaydı yapılmaz)
     // Örnek: postgresql://user:pass@localhost:5432/algotrader
-    val DATABASE_URL: String? = System.getenv("DATABASE_URL")
+    val DATABASE_URL: String? = optional("DATABASE_URL")
 
     // Dow Jones 30 + Nasdaq-100 birleşimi (tekrar edenler çıkarıldı)
     val FULL_WATCHLIST = listOf(
@@ -77,10 +81,7 @@ object Config {
         const val NEWS_WINDOW_MINUTES = 60
         const val MAX_NEWS_COUNT = 3
 
-        // Sayfalama: kaç sembol aynı anda izlensin
-        const val PAGE_SIZE = 20
-
-        // Her kaç ms'de bir sonraki sayfaya geç (2 dakika)
-        const val PAGE_ROTATION_MS = 2 * 60 * 1000L
+        // Başlangıçta tüm watchlist taranır, bu kadar hisse seçilir
+        const val TOP_WATCHLIST_SIZE = 10
     }
 }

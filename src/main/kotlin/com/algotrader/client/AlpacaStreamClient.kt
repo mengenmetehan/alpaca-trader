@@ -24,6 +24,7 @@ class AlpacaStreamClient(
     val barFlow: Flow<AlpacaBar> = barChannel.receiveAsFlow()
 
     @Volatile private var activeWebSocket: WebSocket? = null
+    @Volatile private var reconnectDelayMs = 5_000L
     private val currentSubscriptions = mutableSetOf<String>()
 
     /**
@@ -81,13 +82,19 @@ class AlpacaStreamClient(
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 logger.error(t) { "WebSocket hatası: ${t.message}" }
-                // Yeniden bağlan
-                Thread.sleep(3000)
+                activeWebSocket?.cancel()
+                activeWebSocket = null
+                val delay = reconnectDelayMs
+                reconnectDelayMs = minOf(delay * 2, 60_000L)
+                logger.info { "${delay / 1000}s sonra yeniden bağlanılıyor..." }
+                Thread.sleep(delay)
+                client.connectionPool.evictAll()
                 connect()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 logger.warn { "WebSocket kapandı: $reason" }
+                if (activeWebSocket === webSocket) activeWebSocket = null
             }
         })
     }
@@ -116,6 +123,7 @@ class AlpacaStreamClient(
                     "success" -> {
                         val msg = obj["msg"]?.jsonPrimitive?.content
                         if (msg == "authenticated") {
+                            reconnectDelayMs = 5_000L  // başarılı bağlantıda delay'i sıfırla
                             logger.info { "Auth başarılı, ${initialSymbols.size} sembol subscribe ediliyor..." }
                             val subscribeMsg = buildJsonObject {
                                 put("action", "subscribe")
@@ -138,6 +146,13 @@ class AlpacaStreamClient(
 
                     "error" -> {
                         logger.error { "Alpaca hata: $obj" }
+                        val code = obj["code"]?.jsonPrimitive?.intOrNull
+                        if (code == 406) {
+                            // Alpaca server-side session henüz kapanmadı — en az 30s bekle
+                            reconnectDelayMs = maxOf(reconnectDelayMs, 30_000L)
+                            logger.warn { "Bağlantı limiti (406) — eski oturum kapanana kadar ${reconnectDelayMs / 1000}s bekleniyor..." }
+                            webSocket.cancel()
+                        }
                     }
 
                     else -> logger.trace { "Bilinmeyen mesaj tipi: $msgType" }
@@ -149,6 +164,8 @@ class AlpacaStreamClient(
     }
 
     fun close() {
+        activeWebSocket?.close(1000, "shutdown")
+        activeWebSocket = null
         barChannel.close()
         client.dispatcher.executorService.shutdown()
     }

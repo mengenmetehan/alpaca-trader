@@ -37,10 +37,19 @@ dependencies {
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
 
 application {
-    mainClass.set("com.algotrader.MainKt")
+    mainClass.set("com.algotrader.AlpacaApplicationKt")
+    applicationDefaultJvmArgs = listOf(
+        "-DALPACA_KEY_ID=${envOrProp("ALPACA_KEY_ID")}",
+        "-DALPACA_SECRET_KEY=${envOrProp("ALPACA_SECRET_KEY")}",
+        "-DFINNHUB_API_KEY=${envOrProp("FINNHUB_API_KEY")}",
+        "-DTELEGRAM_BOT_TOKEN=${envOrProp("TELEGRAM_BOT_TOKEN")}",
+        "-DTELEGRAM_CHAT_ID=${envOrProp("TELEGRAM_CHAT_ID")}",
+        "-DDATABASE_URL=${envOrProp("DATABASE_URL")}"
+    )
 }
 
 kotlin {
@@ -61,10 +70,10 @@ tasks.test {
 }
 
 tasks.named<JavaExec>("run") {
-    environment("ALPACA_KEY_ID",        envOrProp("ALPACA_KEY_ID"))
-    environment("ALPACA_SECRET_KEY",    envOrProp("ALPACA_SECRET_KEY"))
-    environment("FINNHUB_API_KEY",      envOrProp("FINNHUB_API_KEY"))
-    environment("TELEGRAM_BOT_TOKEN",   envOrProp("TELEGRAM_BOT_TOKEN"))
-    environment("TELEGRAM_CHAT_ID",     envOrProp("TELEGRAM_CHAT_ID"))
-    environment("DATABASE_URL",         envOrProp("DATABASE_URL"))
+    systemProperty("ALPACA_KEY_ID",        envOrProp("ALPACA_KEY_ID"))
+    systemProperty("ALPACA_SECRET_KEY",    envOrProp("ALPACA_SECRET_KEY"))
+    systemProperty("FINNHUB_API_KEY",      envOrProp("FINNHUB_API_KEY"))
+    systemProperty("TELEGRAM_BOT_TOKEN",   envOrProp("TELEGRAM_BOT_TOKEN"))
+    systemProperty("TELEGRAM_CHAT_ID",     envOrProp("TELEGRAM_CHAT_ID"))
+    systemProperty("DATABASE_URL",         envOrProp("DATABASE_URL"))
 }

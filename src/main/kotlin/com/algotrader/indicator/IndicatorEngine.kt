@@ -60,6 +60,11 @@ class IndicatorEngine(val symbol: String) {
     // Bar sayacı — indikatörlerin yeterince ısınıp ısınmadığını kontrol etmek için
     private var barCount = 0
 
+    // Warmup bitti mi? false → DEBUG log, true → INFO log
+    private var isLive = false
+
+    fun setLive() { isLive = true }
+
     /**
      * Yeni bar ekle ve sinyal hesapla.
      * Yeterli bar yoksa null döner.
@@ -106,14 +111,20 @@ class IndicatorEngine(val symbol: String) {
                 price            = price,
                 timestamp        = bar.timestamp
             ).also { sig ->
-                logger.debug {
-                    "[$symbol] RSI: ${"%.1f".format(rsiVal)} | " +
-                    "MACD Hist: ${"%.4f".format(macdHist)} | " +
+                val logLine = "[$symbol] RSI: ${"%.1f".format(rsiVal)} | " +
+                    "MACD: ${"%.4f".format(macdHist)} | " +
                     "BB: ${bbPosition.name} | " +
-                    "Vol Ratio: ${"%.2f".format(volumeRatio)}" +
-                    if (sig.isBuySignal)  " → 🟢 BUY SİNYALİ"
-                    else if (sig.isSellSignal) " → 🔴 SELL SİNYALİ"
-                    else ""
+                    "Vol: ${"%.2f".format(volumeRatio)}" +
+                    when {
+                        sig.isBuySignal  -> " → 🟢 BUY SİNYALİ"
+                        sig.isSellSignal -> " → 🔴 SELL SİNYALİ"
+                        else             -> ""
+                    }
+
+                when {
+                    isLive && (sig.isBuySignal || sig.isSellSignal) -> logger.info { logLine }
+                    isLive && (rsiVal < 42.0 || rsiVal > 58.0) -> logger.info { logLine }
+                    else -> logger.debug { logLine }
                 }
             }
         }.getOrElse { e ->

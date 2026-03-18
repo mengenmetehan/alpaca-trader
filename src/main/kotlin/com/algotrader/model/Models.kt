@@ -54,19 +54,19 @@ data class TechnicalSignal(
 ) {
     enum class BollingerPosition { ABOVE_UPPER, INSIDE, BELOW_LOWER }
 
-    // Alım sinyali: RSI aşırı satım + MACD pozitif dönüş + Bollinger alt band
+    // Alım sinyali: RSI aşırı satım + MACD pozitif dönüş (Bollinger ve hacim esnetildi)
     val isBuySignal: Boolean get() =
         rsi < 35.0 &&
         macdHistogram > 0 &&
-        bollingerPosition == BollingerPosition.BELOW_LOWER &&
-        volumeRatio > 1.5   // Hacim normalin 1.5 katı üzerinde
+        bollingerPosition != BollingerPosition.ABOVE_UPPER &&  // zirvedeyken alma
+        volumeRatio > 1.0
 
-    // Satım sinyali: RSI aşırı alım + MACD negatif + Bollinger üst band
+    // Satım sinyali: RSI aşırı alım + MACD negatif dönüş (Bollinger ve hacim esnetildi)
     val isSellSignal: Boolean get() =
         rsi > 65.0 &&
         macdHistogram < 0 &&
-        bollingerPosition == BollingerPosition.ABOVE_UPPER &&
-        volumeRatio > 1.5
+        bollingerPosition != BollingerPosition.BELOW_LOWER &&  // dibdeyken satma
+        volumeRatio > 1.0
 }
 
 // --- Temel analiz verisi (Finnhub) ---
@@ -85,7 +85,12 @@ data class FundamentalData(
 
 // --- Order ---
 
-enum class OrderSide { BUY, SELL }
+enum class OrderSide {
+    BUY,    // long pozisyon aç
+    SELL,   // long pozisyon kapat
+    SHORT,  // short pozisyon aç (Alpaca'ya "sell" gönderilir)
+    COVER   // short pozisyon kapat (Alpaca'ya "buy" gönderilir)
+}
 enum class OrderStatus { PENDING, FILLED, CANCELLED, FAILED }
 
 data class TradeOrder(

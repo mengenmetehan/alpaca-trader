@@ -16,19 +16,11 @@ private val logger = KotlinLogging.logger {}
 fun main() = runBlocking {
     logger.info { "🚀 AlgoTrader başlatılıyor..." }
 
-    // Tüm semboller 20'lik sayfalara bölünür
-    val pages = Config.FULL_WATCHLIST.chunked(Config.Strategy.PAGE_SIZE)
-    logger.info { "📋 Toplam ${Config.FULL_WATCHLIST.size} sembol → ${pages.size} sayfa (${Config.Strategy.PAGE_SIZE}'er)" }
-
-    var pageIndex = 0
-    val firstPage = pages[pageIndex]
-
-    val restClient   = AlpacaRestClient()
-    val finnhub      = FinnhubClient()
-    val streamClient = AlpacaStreamClient(firstPage)
-    val strategy     = TradingStrategy(restClient, finnhub)
-    val telegram     = TelegramClient()
-    val db           = DatabaseService()
+    val restClient = AlpacaRestClient()
+    val finnhub    = FinnhubClient()
+    val strategy   = TradingStrategy(restClient, finnhub)
+    val telegram   = TelegramClient()
+    val db         = DatabaseService()
 
     // Hesap bilgilerini göster
     restClient.getAccountInfo()?.let { account ->
@@ -39,18 +31,28 @@ fun main() = runBlocking {
         }
     }
 
-    // İlk sayfa: fundamentals + historical bar ısınması
-    strategy.initialize(firstPage)
+    // 1. Tüm watchlist için fundamental yükle → en iyi N hisseyi seç
+    val topSymbols = strategy.loadAndSelectTop(
+        Config.FULL_WATCHLIST,
+        Config.Strategy.TOP_WATCHLIST_SIZE
+    )
+    if (topSymbols.isEmpty()) {
+        logger.error { "Uygun temel değere sahip hisse bulunamadı, çıkılıyor." }
+        return@runBlocking
+    }
 
-    // WebSocket stream başlat (ilk sayfa ile)
+    // 2. Sadece seçilen hisseler için indikatörleri ısıt
+    strategy.warmUp(topSymbols)
+
+    // 3. Sadece bu hisseleri stream et
+    val streamClient = AlpacaStreamClient(topSymbols)
     streamClient.connect()
-    logger.info { "📡 WebSocket stream aktif | Sayfa 1/${pages.size}: $firstPage" }
+    logger.info { "📡 WebSocket stream aktif | ${topSymbols.size} hisse: $topSymbols" }
 
     // Bar'ları işle → sinyal üret → emir gönder
     val tradingJob = launch {
         strategy.processBarFlow(streamClient.barFlow)
             .collect { order ->
-                // Paper trading emrini gönder
                 val response = restClient.submitOrder(order)
 
                 order.status = if (response != null) {
@@ -68,27 +70,6 @@ fun main() = runBlocking {
                 telegram.notifyOrder(order)
                 db.saveOrder(order)
             }
-    }
-
-    // Her 2 dakikada bir sonraki sayfaya geç
-    val rotationJob = launch {
-        while (isActive) {
-            delay(Config.Strategy.PAGE_ROTATION_MS)
-            pageIndex = (pageIndex + 1) % pages.size
-            val newPage = pages[pageIndex]
-
-            // Açık pozisyonlu semboller sayfadan çıksa bile stream'de kalsın
-            val openSymbols = strategy.getOpenPositions().toList()
-            val activeSymbols = (newPage + openSymbols).distinct()
-
-            logger.info { "🔄 Sayfa ${pageIndex + 1}/${pages.size} → $newPage" }
-            if (openSymbols.isNotEmpty()) {
-                logger.info { "📌 Açık pozisyon korunuyor: $openSymbols" }
-            }
-
-            strategy.rotatePage(activeSymbols)
-            streamClient.resubscribe(activeSymbols)
-        }
     }
 
     // Pozisyon özeti her 5 dakikada bir logla
@@ -118,7 +99,6 @@ fun main() = runBlocking {
         runBlocking {
             tradingJob.cancel()
             monitorJob.cancel()
-            rotationJob.cancel()
         }
         streamClient.close()
         db.close()

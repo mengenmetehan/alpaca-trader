@@ -12,17 +12,25 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 private val logger = KotlinLogging.logger {}
 
-class TelegramClient {
+class TelegramClient(
+    private val apiBaseUrl: String = "https://api.telegram.org",
+    private val token: String? = Config.TELEGRAM_BOT_TOKEN,
+    private val chatId: String? = Config.TELEGRAM_CHAT_ID
+) {
     private val client = OkHttpClient()
-    private val enabled = Config.TELEGRAM_BOT_TOKEN != null && Config.TELEGRAM_CHAT_ID != null
+    private val enabled = token != null && chatId != null
 
     fun notifyOrder(order: TradeOrder) {
         if (!enabled) return
 
         val emoji = when {
             order.side == OrderSide.BUY                        -> "🟢"
+            order.side == OrderSide.COVER                      -> "🔵"
             order.reason.startsWith("STOP_LOSS")               -> "🛑"
+            order.reason.startsWith("SHORT_SL")                -> "🛑"
             order.reason.startsWith("TAKE_PROFIT")             -> "🎯"
+            order.reason.startsWith("SHORT_TP")                -> "🎯"
+            order.side == OrderSide.SHORT                      -> "🔴"
             else                                               -> "🔴"
         }
 
@@ -47,14 +55,14 @@ class TelegramClient {
     }
 
     private fun send(text: String) {
-        val token  = Config.TELEGRAM_BOT_TOKEN ?: return
-        val chatId = Config.TELEGRAM_CHAT_ID   ?: return
+        val tok = token   ?: return
+        val cid = chatId  ?: return
 
-        val body = """{"chat_id":"$chatId","text":"$text","parse_mode":"Markdown"}"""
+        val body = """{"chat_id":"$cid","text":"$text","parse_mode":"Markdown"}"""
             .toRequestBody("application/json".toMediaType())
 
         val request = Request.Builder()
-            .url("https://api.telegram.org/bot$token/sendMessage")
+            .url("$apiBaseUrl/bot$tok/sendMessage")
             .post(body)
             .build()
 
